@@ -12,6 +12,25 @@ void *objmap_del(const void *k) { for (int i = 0; i < 8; i++) if (om[i].k == k) 
 static _Atomic int g_sig;
 void hle_signal_system_event(void *g) { (void)g; atomic_fetch_add_explicit(&g_sig, 1, memory_order_seq_cst); }
 void hle_bind_system_event(void *g, int autoclear) { (void)g; (void)autoclear; }   // 真实现要客体线程 + SDK 内核事件；单测只数触发次数 | the real implementation needs a guest thread + SDK kernel event; the unit test only counts triggers
+// A 5.1 center-only voice must reach both phone speakers, and rendering three
+// stereo frames must consume three guest frames, including across buffers.
+static int surround_render_test(void) {
+    int16_t pcm[18] = {0,0,10000,0,0,0, 1000,2000,0,0,10000,20000, 30000,30000,30000,0,30000,30000};
+    int16_t output[6] = {0};
+    int16_t mixbuf[MIXMAX * 6];
+    aout a = {0}; a.ch = 6; a.mix = 1; a.mixbuf = mixbuf; atomic_store(&a.state, STATE_STARTED);
+    a.notify_sem = dispatch_semaphore_create(0);
+    gbuf b[2] = {{pcm,12,12}, {pcm+6,24,24}};
+    a.q[0]=&b[0]; a.q[1]=&b[1]; atomic_store(&a.q_tail,2);
+    AudioBufferList bl = {.mNumberBuffers=1, .mBuffers={{2,sizeof output,output}}};
+    au_render(&a,NULL,NULL,0,3,&bl);
+    int ok = output[0]==5000 && output[1]==5000 && output[2]==5707 && output[3]==11414 && output[4]==32767 && output[5]==32767 && atomic_load(&a.q_head)==2 && a.pos==0;
+    printf("5.1 voice / surrounds / clipping / frame consumption: %d,%d %d,%d %d,%d consumed=%u %s\n",output[0],output[1],output[2],output[3],output[4],output[5],atomic_load(&a.q_head),ok?"PASS":"FAIL");
+    memset(output,0x7f,sizeof output); au_render(&a,NULL,NULL,0,3,&bl);
+    for (int i=0;i<6;i++) if(output[i]) ok=0;
+    dispatch_release(a.notify_sem);
+    return ok;
+}
 int main(void) {
     {   // 5.1 下混（期望按 Q15 系数手算：0.707·0.707 = 16384/32768 = 0.5，0.707 = 23170/32768）：顺序 左前 右前 中置 低音 左后 右后 | 5.1 downmix (expected values worked out by hand from the Q15 coefficients: 0.707*0.707 = 16384/32768 = 0.5, 0.707 = 23170/32768): order front left, front right, centre, LFE, rear left, rear right
         static const struct { int16_t in[6]; int16_t l, r; const char *what; } c[] = {
@@ -25,6 +44,7 @@ int main(void) {
         for (unsigned i = 0; i < sizeof c / sizeof *c; i++) { int16_t o[2]; downmix51(c[i].in, o, 1); int ok = o[0] == c[i].l && o[1] == c[i].r; bad |= !ok;
             printf("下混：%s：期望 (%d,%d) → 真结果 (%d,%d) %s\n", c[i].what, c[i].l, c[i].r, o[0], o[1], ok ? "✓" : "✗"); }
         if (bad) return 1; }
+    if (!surround_render_test()) return 1;
     char out[64], ev[64]; uint8_t prm[16]; gbuf b[3]; static int16_t pcm[3][4800 * 2];
     h_au_InitParam(prm);
     if (h_au_Open(out, ev, NULL, prm)) return 1;
