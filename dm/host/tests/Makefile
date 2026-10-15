@@ -15,6 +15,7 @@ run: \
 	$(B)/t_altstack \
 	$(B)/t_audio \
 	$(B)/t_audio_spsc \
+	$(B)/t_charged_skill \
 	$(B)/t_cloudsync \
 	$(B)/t_condvar \
 	$(B)/t_condvar_old \
@@ -80,6 +81,7 @@ run: \
 	DM_ROMFS="$(DM_ROOT)/data/switch/3.3.94012/Update/RomFS" $(B)/t_romfs_validate
 	$(B)/t_audio
 	$(B)/t_audio_spsc
+	$(B)/t_charged_skill
 	$(B)/t_swkbd
 	$(B)/t_altstack
 	$(B)/t_movie
@@ -122,6 +124,8 @@ $(B)/t_modetx: t_modetx.c ../dm_modetx.h | $(B)
 	clang -O1 -Wall -Werror -o $@ t_modetx.c
 $(B)/t_namegen: t_namegen.c ../dm_namegen.c | $(B)
 	clang -O1 -Wall -Werror -o $@ t_namegen.c ../dm_namegen.c
+$(B)/t_charged_skill: t_charged_skill.c ../dm_charged_skill.h | $(B)
+	$(CC) -std=c11 -O1 -Wall -Wextra -Werror -o $@ $<
 $(B)/t_cloudsync: t_cloudsync.c ../dm_cloudsync.c ../dm.h | $(B)
 	clang -O1 -Wall -Werror -I.. -o $@ t_cloudsync.c ../dm_cloudsync.c
 $(B)/t_touch: t_touch.c ../hle_touch.c ../front.h ../dm.h | $(B)
