@@ -2339,6 +2339,7 @@ static void ui_map_geom_pump(module_t *m, uint64_t root) {
         mode = *(volatile int32_t *)(m->base + 0x2d5c748) == 0 ? 2 : 1;
         float q = ceilf(((float (*)(uint64_t))(m->base + 0x390b38))(am) * *(float *)(am + (mode == 2 ? 0x15a8 : 0x15ac)) * 8) / 8; if (q < 0.125f) q = 0.125f;   // 全屏 / 微缩各一档缩放（0xc0df58 / 0xc0de54；实测 1.0 / 0.5） | One zoom level each for fullscreen / mini (0xc0df58 / 0xc0de54; measured 1.0 / 0.5)
         cell = q * *(float *)(m->base + 0x2d5e918); }
+    { static int last = -1; if (last != mode) { dm_hud_info hi; dm_hud_get(&hi); LOG("地图可见状态：%d → %d，区域 %d，局内 %d，面板可见 %d", last, mode, hi.valid ? hi.area : -1, dm_uiscreen_ingame(), am ? *(uint8_t *)(am + 0x50) : -1); last = mode; } }
     uint32_t cb; memcpy(&cb, &cell, 4); atomic_store(&g_mapgeom, (uint64_t)mode << 32 | cb);
 }
 int dm_ui_map_geom(float *cell) { uint64_t v = atomic_load(&g_mapgeom); uint32_t cb = (uint32_t)v; memcpy(cell, &cb, 4); return (int)(v >> 32); }
