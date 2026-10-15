@@ -17,6 +17,7 @@
 //   Skill point allocation: the skill tree button widget stores the click message -- [+0x558] category SkillsTreePanelMessage, [+0x568] → i32 skill id; send SkillsTreePanelMessage:UseSkillPoint {skill id} (handled by 0xc362ac → packet 0x3b);
 //            whether a point can be added = main+0xc368b0(skill id).
 #include "dm_actions.h"
+#include "dm_charged_skill.h"
 #include "dm_cursor_item.h"
 #include "dm_elysium.h"
 #include "dm_custom.h"
@@ -357,12 +358,8 @@ static int ss_node_any(uint64_t pl, int id) {   // 当前组里同技能号的�
     for (int k = 0; n && k < 1024; k++, n = *(uint64_t *)(n + 8)) { uint64_t r = *(uint64_t *)n; if (r && *(int16_t *)r == id && *(int32_t *)(n + 0x38) > 0) return *(int32_t *)(n + 0x44); }
     return -2;
 }
-static int ss_item_charges(uint64_t it, int skill) {   // 物品属性 204 里这个技能的剩余次数；不是充能 = -1（属性表：[单位+0x88]，扩展表取 +0xe8 否则 +0x30 的 {数组, 个数}，每项 {u32 属性号 << 16 | 层, i32 值}，同取属性函数 0x5b9290） | Remaining charges of this skill in item stat 204; not a charged skill = -1 (stat table: [unit+0x88], the {array, count} at +0xe8 for an extended table, otherwise at +0x30, each entry {u32 stat id << 16 | layer, i32 value}, same as the stat getter function 0x5b9290)
-    uint64_t sl = *(uint64_t *)(it + 0x88); if (!sl) return -1;
-    uint64_t a = (*(int32_t *)(sl + 0x1c) < 0) ? sl + 0xe8 : sl + 0x30, arr = *(uint64_t *)a, cnt = *(uint64_t *)(a + 8);
-    for (uint64_t i = 0; arr && i < cnt && i < 512; i++) { uint32_t key = *(uint32_t *)(arr + 8 * i); if ((key >> 16) == 204 && (int)((key & 0xffff) >> 6) == skill) return *(int32_t *)(arr + 8 * i + 4) & 0xff; }
-    return -1;
-}
+static int ss_item_charges(uint64_t it, int skill) { return dm_charged_skill_count(it, skill); }
+
 static void swapskill_pump(uint8_t *b, uint64_t pl) {
     if (!pl) return;
     // 面 → 格（main+0x2d13cbc，6 × {逻辑键, 普通格, 替代格}；逻辑键同 dm_touch_game_state.c sdk()）
@@ -379,6 +376,13 @@ static void swapskill_pump(uint8_t *b, uint64_t pl) {
       for (int k = 0; n && k < 1024; k++, n = *(uint64_t *)(n + 8)) { uint64_t r = *(uint64_t *)n; int32_t itm = *(int32_t *)(n + 0x44); if (r && itm != -1) { h = (h ^ (uint16_t)*(int16_t *)r) * 16777619u; h = (h ^ (uint32_t)itm) * 16777619u; } }
       atomic_store(&g_ss_itemsig, h); }
     for (int s = 0; s < 12; s++) { int id = *(int32_t *)(b + 0x2d5f0c0 + 28 * s), item = *(int32_t *)(b + 0x2d5f0c0 + 28 * s + 4), kind = 0, ch = -1;
+        // A loaded item binding can point at a different equipped weapon. Repair
+        // only a unique charged source; native casting still spends its charges.
+        if (id >= 0 && item != -1 && !ss_node(pl, id, item, NULL)) {
+            int32_t source = dm_charged_skill_source(eqit, neq, id, item);
+            if (source != item) { LOG("聚气技能来源修正：槽 %d 技能 %d 物品 %d → %d", s, id, item, source);
+                *(int32_t *)(b + 0x2d5f0c0 + 28 * s + 4) = item = source; }
+        }
         if (id >= 0 && item != -1) { uint64_t owner = 0; for (int e = 0; e < neq; e++) if (*(int32_t *)(eqit[e] + 8) == item) owner = eqit[e];
             if (owner) { ch = ss_item_charges(owner, id); if (ch >= 0) kind |= 2;
                 if (!ss_node(pl, id, item, NULL)) { int alt = ss_node_any(pl, id);
@@ -431,7 +435,9 @@ static void swapskill_pump(uint8_t *b, uint64_t pl) {
         if (t - t0 >= 6 && tries < 5 && atomic_load(&g_ss_srv_wset) == from && !busy) { tries++; t0 = t; if (rej_left > 0) { rej_left--; LOG("DM_TEST_SS_REJECT：这次换过去不发"); } else swap0(from); LOG("副手组技能：拍 %u 换过去没被接受（当前组仍是 %d）→ 第 %d 次再发", t, from, tries); break; }
         if (t - t0 >= 25) {   // 最后一次发出 25 拍后技能还没出现：放弃（列出这个技能现有的节点，看是物品号对不上还是没换过去） | The skill still has not appeared 25 ticks after the last send: give up (list the existing nodes of this skill, to see whether the item id does not match or the swap did not happen)
             { char nb[160] = ""; uint64_t l = *(uint64_t *)(pl + 0x100), n = l ? *(uint64_t *)l : 0; for (int k = 0; n && k < 1024; k++, n = *(uint64_t *)(n + 8)) { uint64_t r = *(uint64_t *)n; if (r && *(int16_t *)r == id) { size_t q = strlen(nb); snprintf(nb + q, sizeof nb - q, " 物品%d/等级%d", *(int32_t *)(n + 0x44), *(int32_t *)(n + 0x38)); } }
-                LOG("【红】副手组技能：换武器后 25 拍技能还没出现，放弃这次（当前组 %d；技能 %d 现有节点：%s）", atomic_load(&g_ss_srv_wset), id, nb[0] ? nb : " 无"); atomic_store(&g_ss_phase, atomic_load(&g_ss_srv_wset) != from ? SS_RELEASED : SS_IDLE); } }
+                LOG("【红】副手组技能：换武器后 25 拍技能还没出现，放弃这次（当前组 %d；技能 %d 现有节点：%s）", atomic_load(&g_ss_srv_wset), id, nb[0] ? nb : " 无");
+                for (int e = 0; e < neq; e++) { int ch = ss_item_charges(eqit[e], id); if (ch >= 0) LOG("副手组技能诊断：装备物品 %u 的技能 %d 剩余 %d 次", *(uint32_t *)(eqit[e] + 8), id, ch); }
+                atomic_store(&g_ss_phase, atomic_load(&g_ss_srv_wset) != from ? SS_RELEASED : SS_IDLE); } }
         break; }
     case SS_READY: { int ch = -1;   // 放行中：看见施法了（充能次数减了，或从不在动作变成在动作）就告诉取键处，早松手的补按到此为止 | Letting through: once a cast is seen (the charge count went down, or it went from not in an action to in an action), tell the button-fetch site, and the supplementary presses for an early release end here
         if (!atomic_load(&g_ss_cast) && ((ss_node(pl, id, item, &ch) && ch >= 0 && (uint32_t)ch < ch_ready) || (busy && !busy_ready))) { atomic_store(&g_ss_cast, 1); if (atomic_load(&g_ss_early)) LOG("副手组技能：拍 %u 看见施法（剩余 %d 次）", t, ch); }
@@ -441,7 +447,8 @@ static void swapskill_pump(uint8_t *b, uint64_t pl) {
         if (dead) { atomic_store(&g_ss_phase, SS_IDLE); break; }
         if (busy) { tidle = 0; break; }   // 施法动作还没完：服务端会拒绝动作中的换武器 | Cast action not finished yet: the server rejects a weapon swap during an action
         if (!tidle) tidle = t; if (t - tidle < 2) break;   // 客户端动作刚结束时服务端那边可能还差一拍（本机 结束当拍发的换武器被拒过一次） | When the client action has just ended the server side may still be one tick behind (on this machine a weapon swap sent on the very tick it ended was rejected once)
-        if (w != from) { tback = t; tries = 1; swap0(w); atomic_store(&g_ss_phase, SS_BACK); LOG("副手组技能：拍 %u 松手、动作结束 → 切回（当前组 %d）", t, w); }
+        if (w != from) { int remaining = -1; ss_node(pl, id, item, &remaining);
+            tback = t; tries = 1; swap0(w); atomic_store(&g_ss_phase, SS_BACK); LOG("副手组技能：拍 %u 松手、动作结束 → 切回（当前组 %d，技能 %d 剩余 %d 次）", t, w, id, remaining); }
         else atomic_store(&g_ss_phase, SS_IDLE);
         break;
     case SS_BACK:
