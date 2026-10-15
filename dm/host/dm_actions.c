@@ -448,7 +448,10 @@ static void swapskill_pump(uint8_t *b, uint64_t pl) {
         LOG("副手组技能：拍 %u 槽 %d 技能 %d（物品 %d）在另一组 → 换武器（当前组 %d）", t, s, id, item, w); break; }
     case SS_SWAPPING: { int ch = 0;
         if (dead) { LOG("副手组技能：换武器途中死亡，放弃（不切回，武器组由游戏管）"); atomic_store(&g_ss_phase, SS_IDLE); break; }
-        if (ss_node(pl, id, item, &ch)) { LOG("副手组技能：拍 %u 技能可放了（换武器 → 可放 %u 拍，剩余 %d 次）→ 放行按键", t, t - t0, ch); ch_ready = (uint32_t)ch; busy_ready = busy; atomic_store(&g_ss_cast, 0); atomic_store(&g_ss_phase, SS_READY); break; }
+        // The client skill node can appear during the swap tick, before the
+        // server/HID state agrees. A press then plays an action but spends no
+        // charge. Wait for a later tick AND the confirmed destination set.
+        if (t != t0 && w == (from ^ 1) && ss_node(pl, id, item, &ch)) { LOG("副手组技能：拍 %u 技能可放了（换武器 → 可放 %u 拍，剩余 %d 次）→ 放行按键", t, t - t0, ch); ch_ready = (uint32_t)ch; busy_ready = busy; atomic_store(&g_ss_cast, 0); atomic_store(&g_ss_phase, SS_READY); break; }
         // 服务端记的组号还是原来那组 = 这次换武器没被接受（动作中被拒 / 包丢了）：6 拍后动作不在就再发，最多 5 次（换过去正常 1 拍内就变）
         // The set number recorded by the server is still the original set = this weapon swap was not accepted (rejected during an action / packet lost): send again after 6 ticks if no action is in progress, at most 5 times (a successful swap normally shows within 1 tick)
         if (t - t0 >= 6 && tries < 5 && atomic_load(&g_ss_srv_wset) == from && !busy) { tries++; t0 = t; if (rej_left > 0) { rej_left--; LOG("DM_TEST_SS_REJECT：这次换过去不发"); } else swap0(from); LOG("副手组技能：拍 %u 换过去没被接受（当前组仍是 %d）→ 第 %d 次再发", t, from, tries); break; }
