@@ -36,6 +36,7 @@ void dm_ui_rect(int *x, int *y, int *w, int *h) { *x = *y = *w = *h = 0; }
 void dm_uiscreen_set_panel(int on) { (void)on; }
 int dm_screen_real(int *w, int *h) { (void)w; (void)h; return 0; }
 int dm_uiscreen_ingame(void) { return 0; }
+int dm_uiscreen_panel(void) { return 0; }
 void dm_uiscreen_set_ingame(int on) { (void)on; }   // 界面矩形（dm_uiscreen.c）的桩：没开真全屏 | stub for the UI rectangle (dm_uiscreen.c): true full screen not enabled
 void dm_inv_sort(int page) { (void)page; }
 int dm_diag_difficulty(void) { return -1; }

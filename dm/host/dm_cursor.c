@@ -6,6 +6,7 @@
 #include "dm_input.h"
 #include "dm_hud.h"
 #include "dm_actions.h"
+#include "dm_automap_recovery.h"
 #include "dm_cursor_item.h"
 #include "dm_i18n.h"
 #include <stdatomic.h>
@@ -1861,6 +1862,8 @@ static void ui_bind_pump(uint64_t root, uint64_t fr) {
 // Changing only the config value without calling the callback leaves the picture unchanged. Here the callback is called directly: pass 0 to switch to fullscreen, pass the config value to switch back (left / right as the player chose on the options page); the config object itself is untouched, so nothing is persisted and the next run follows the player's setting.
 // The controller has no key for switching this mode (the map key − only opens / closes).
 static _Atomic int g_map_req = -1, g_map_full_now;
+static dm_automap_recovery g_map_recovery;
+static int ui_touch_mode(void);
 void dm_ui_map_full(int on) { atomic_store(&g_map_req, on != 0); }
 int dm_ui_map_is_full(void) { return atomic_load(&g_map_full_now); }
 // 真全屏局内，全屏地图的线条要盖在世界上：游戏把地图中心放在「屏幕高的一半」（它读到的是我们写的 16:9 界面高），画出来在 界面矩形 y + 界面高 ÷ 2；
@@ -2242,6 +2245,13 @@ static void ui_safe_pump(module_t *m, uint64_t root, uint64_t fr) {
 static _Atomic uint64_t g_mapgeom;   // 高 32 位 = 模式（0 没开 / 1 微缩 / 2 全屏），低 32 位 = 每格像素（float 的位） | High 32 bits = mode (0 not open / 1 mini / 2 fullscreen), low 32 bits = pixels per cell (bits of a float)
 static void ui_map_geom_pump(module_t *m, uint64_t root) {
     uint64_t am = ui_panel(root, "AutoMap"); int mode = 0; float cell = 0;
+    dm_hud_info hi; dm_hud_get(&hi);
+    int exists = am && *(uint64_t *)am == (uint64_t)m->base + 0x20c58a0;
+    if (dm_automap_restore_take(&g_map_recovery, ui_touch_mode(), hi.valid && dm_uiscreen_ingame() && !dm_uiscreen_panel(), exists, exists && *(uint8_t *)(am + 0x50))) {
+        fe_send("PanelManager", "OpenPanel", "AutoMap");
+        LOG("幕间动画结束：恢复动画前已开启的地图（区域 %d）", hi.area);
+        am = ui_panel(root, "AutoMap");
+    }
     if (am && *(uint64_t *)am == (uint64_t)m->base + 0x20c58a0 && *(uint8_t *)(am + 0x50)) {
         mode = *(volatile int32_t *)(m->base + 0x2d5c748) == 0 ? 2 : 1;
         float q = ceilf(((float (*)(uint64_t))(m->base + 0x390b38))(am) * *(float *)(am + (mode == 2 ? 0x15a8 : 0x15ac)) * 8) / 8; if (q < 0.125f) q = 0.125f;   // 全屏 / 微缩各一档缩放（0xc0df58 / 0xc0de54；实测 1.0 / 0.5） | One zoom level each for fullscreen / mini (0xc0df58 / 0xc0de54; measured 1.0 / 0.5)
@@ -2575,6 +2585,8 @@ static void ui_panel_state_pump(uint64_t root) {   // 游戏主线程，每帧 |
 //   两种模式都跑：ui_target_pump（鉴定目标，含手柄按住 A）、ui_item_pump（命中查询，宿主自己也问）、ui_ptr_pump（指针事件，宿主合成的点击也走）、
 //     ui_safe_pump / ui_lift_pump / ui_note_dock_pump / ui_trove_tabs_pump / ui_minimap_pump / ui_map_pump / ui_map_geom_pump / ui_map_center（屏幕几何，与输入方式无关）、ui_boss_pct_pump、ui_npcdlg_pump、
 //     ui_widestash_pump、mv_audit_pump、ui_pages_pump（含手柄 L / R 翻页）、ui_watch_pump、ui_panel_heal、ui_panel_state_pump、rs_pump（一键重开，在前端泵里调）
+// ui_map_geom_pump also restores the map after first-clear movies in touch mode;
+// controller mode leaves map visibility alone, and mode-leave cancels the request.
 // 物品说明框停靠（观测门 OBS_TOOLTIP，挂在说明框面板的「提交一条说明」函数入口 main+0xb0d560(面板, 文字, 目标矩形左上 x2, 目标矩形宽高 x3, 样式, 文字 2)）。
 // 说明框是即时式的：悬停着的控件每帧重新提交、画完就清，宿主在自己的时机读面板里的记录数一直是 0，所以只能在提交那一刻改输入。
 // 原版把框摆在目标矩形（被点的那一格）正下 / 正上方：长说明（暗金、符文之语，十几行）盖住腰带、戒指、背包中间几列和「存放」钮，要点被盖住的格子得先点别处。
@@ -2817,6 +2829,11 @@ static void sel_keep(const char *cat, const char *act) {
     LOG("选角：确认的是「%s」，原版重排后当前成了「%s」（被选者没排到第一行）→ 已按名字设回第 %lld 行", want, nm ? nm : "", (long long)at);
 }
 void dm_ui_on_uimsg(const char *cat, const char *act, const char *arg) {
+    // First-clear act transitions close AutoMap before playing their movie.
+    // Restore its prior visibility only once the world is interactive again.
+    if (!strcmp(cat, "ProgressionMessage") && !strcmp(act, "PlayVideo")) {
+        float cell; dm_automap_movie_begin(&g_map_recovery, ui_touch_mode() && dm_uiscreen_ingame() && dm_ui_map_geom(&cell) != 0);
+    } else if (!strcmp(cat, "Cinematics") && !strcmp(act, "MovieComplete")) dm_automap_movie_complete(&g_map_recovery);
     sel_keep(cat, act);
     // 位置守卫自检的四条路：关面板 / 切页签 / 退出到前端（切后台由前端 dm_ui_lifecycle 报）
     // The four paths of the position guard self-check: closing a panel / switching tabs / exiting to the front end (going to the background is reported by the front end's dm_ui_lifecycle)
@@ -3134,6 +3151,7 @@ void dm_ui_frontend_pump(void) {   // 取手柄处调；各动作之间隔开几
 // Front-end path straightening and the various key presses made on the player's behalf: all in-flight requests are voided. These requests are all queued by touch taps (tapping a tab presses L / R, tapping a settings page button presses Back, tapping a dialog menu row presses up / down and then confirm...),
 // and the whole UI is about to be rebuilt, so leaving them would make them land on the new UI
 void dm_ui_auto_mode_leave(void) {
+    dm_automap_movie_begin(&g_map_recovery, 0);
     atomic_store(&g_fe_skip_tut, 0); atomic_store(&g_fe_back, 0); atomic_store(&g_fe_options, 0); atomic_store(&g_fe_name, 0); atomic_store(&g_fe_name_done, 0); atomic_store(&g_fe_name_key, 0); atomic_store(&g_fe_name_tap, 0);
     atomic_store(&g_fe_key_until, 0); atomic_store(&g_fe_key_mask, 0); atomic_store(&g_pulse_until, 0);   // 「独占的一下」（g_alone_*：进局常态替按一次显示物品键）不在此列：它不是触摸点击排下的，两种模式都要发，由它自己等切换完成（dm_ui_alone_take） | "The exclusive press" (g_alone_*: the one show-items key press made routinely on entering a run) is not among these: it is not queued by a touch tap and must be sent in both modes; it waits for the switch to finish by itself (dm_ui_alone_take)
     atomic_store(&g_set_back_at, 0); atomic_store(&g_speech_back_at, 0); atomic_store(&g_tab_left, 0); atomic_store(&g_tab_direct, 0); atomic_store(&g_tab_then, 0); atomic_store(&g_del_q, 0); atomic_store(&g_del_hold, 0);

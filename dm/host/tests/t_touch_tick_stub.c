@@ -81,6 +81,7 @@ void dm_uiscreen_enable(int m) { (void)m; }
 void dm_ui_rect(int *x, int *y, int *w, int *h) { *x = *y = *w = *h = 0; }
 void dm_uiscreen_set_panel(int on) { (void)on; }
 int dm_uiscreen_ingame(void) { return 0; }
+int dm_uiscreen_panel(void) { return 0; }
 void dm_uiscreen_set_ingame(int on) { (void)on; }
 void dm_held_stow(void) {}
 int dm_held_stow_result(void) { return -1; }
