@@ -182,6 +182,14 @@ dmNamePickIme	先在键盘上选好字	Finish choosing characters on the keyboar
 dmNameTooShort	至少 2 个英文字母，或 1 个汉字	At least 2 letters, or 1 Chinese character	起名框：太短
 dmNameEdge	开头和结尾不能是 - 或 _	Cannot start or end with - or _	起名框：首尾
 dmCancel	取消	Cancel	输入框按钮
+dmStatBulk	批量加点	Bulk Stat Points	属性面板批量加点入口
+dmStatStrength	力量	Strength	批量加点：属性
+dmStatDexterity	敏捷	Dexterity	批量加点：属性
+dmStatVitality	体力	Vitality	批量加点：属性
+dmStatEnergy	精力	Energy	批量加点：属性
+dmStatBulkRemain	剩余 %d 点	%d Points Remaining	批量加点菜单余额
+dmStatBulkAll	全部（%d 点）	All (%d Points)	批量加点：使用全部剩余点数
+dmStatBulkPartial	+%d（实际 +%d）	+%d (Adds %d)	批量加点：剩余点数不足时显示实际数量
 dmConfirm	确定	OK	输入框 / 存档失败框按钮
 dmSaveNoSpace	存储空间不足，进度未保存	Not enough storage. Progress was not saved	存档失败提示框
 dmHudLife	生命: %d / %d	Life: %d / %d	底栏生命（DmTouchOverlay.m，用预渲染字形拼，字形集由 gen_hud_v4.py 从这一行取）

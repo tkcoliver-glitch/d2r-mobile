@@ -79,6 +79,8 @@ There are three cases depending on which UI the game is currently in. Switching 
 
 ### How the touch controls relate to the original UI
 
+On the character's attributes page, **Bulk Stat Points** at the bottom right opens a menu for Strength, Dexterity, Vitality or Energy, followed by **+10**, **+100** or **All**. Requests larger than the balance spend only the points remaining. The original long-press on a stat's plus button still adds points continuously and stops on release.
+
 The principle is to use the game's own UI widgets as far as possible; the shell only adds the layer the game does not have:
 
 - The life orb, mana orb, belt, town portal and feature entry of the **bottom bar** are the game's original HUD widgets; only their positions and scale are changed, through a layout file in the overlay. The experience bar and the numbers on the slots are drawn by the shell. See [NativeHUD/README.md](NativeHUD/README.md) for details.
