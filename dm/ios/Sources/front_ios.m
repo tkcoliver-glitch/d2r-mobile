@@ -124,6 +124,8 @@ static void restart_cover_hook(int on) { dispatch_async(dispatch_get_main_queue(
 - (void)touchesCancelled:(NSSet<UITouch *> *)t withEvent:(UIEvent *)e {}
 @end
 @implementation DmMetalView {
+    UIButton *_statBatchButton;
+    int _statBatchBalance, _statBatchLanguage;
     UITouch *_slot[16];   // 强引用（真机 SIGSEGV：原先不保留，某条路径没清槽时手指对象已释放，下次 pushFrom 读它就崩）。所有结束 / 取消路径都要清槽 | Strong references (real-device SIGSEGV: previously not retained, so when some path failed to clear the slot the finger object was already released and the next pushFrom crashed reading it). All end / cancel paths must clear the slot
     dm_tc_state _controls;
     DmTouchOverlay *_overlay;
@@ -143,6 +145,7 @@ static void restart_cover_hook(int on) { dispatch_async(dispatch_get_main_queue(
 - (instancetype)initWithFrame:(CGRect)f {
     if (!(self = [super initWithFrame:f])) return nil;
     self.multipleTouchEnabled = YES;
+    _statBatchBalance = _statBatchLanguage = -1;
     self.isAccessibilityElement=YES; self.accessibilityIdentifier=@"dm_touch_surface"; self.accessibilityLabel=SWT("dmA11ySurface");
     dm_tc_init(&_controls,f.size.width,f.size.height); _controls.mouse_click_mode=1;   // 功能页里非物品区的点按走界面鼠标点击 | Taps outside the item area in function pages go through UI mouse clicks
     _overlay=[[DmTouchOverlay alloc] initWithFrame:self.bounds]; _overlay.controls=&_controls; _overlay.hidden=YES;   // 启动即前端页面：进局（读取画面撤下）才显示 | Front-end page right at launch: shown only after entering a run (loading screen removed)
@@ -424,7 +427,63 @@ static void restart_cover_hook(int on) { dispatch_async(dispatch_get_main_queue(
     [CATransaction commit];
     static int lm=-1, ln=-1, lc; int m2=show ? mode : 0; if((m2!=lm || n!=ln) && lc<40) { lm=m2; ln=n; lc++; LOG("小地图终点：%s %d 个（地图 %d，每格 %.2f 像素 = %.2f 点）", show ? "画" : "不画", n, mode, cell, c); }
 }
+- (void)statBatchSync {
+    dm_points_info points; dm_points_get(&points);
+    BOOL visible = points.char_open && dm_ui_free_cursor() && !_padMode && !_feMode && _rsCover.hidden;
+    if (!visible) { _statBatchButton.hidden = YES; return; }
+    if (!_statBatchButton) {
+        _statBatchButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        _statBatchButton.accessibilityIdentifier = @"dm_stat_batch";
+        _statBatchButton.showsMenuAsPrimaryAction = YES;
+        [_statBatchButton addTarget:self action:@selector(cancelControls) forControlEvents:UIControlEventMenuActionTriggered];
+        _statBatchButton.titleLabel.font = [UIFont boldSystemFontOfSize:16];
+        _statBatchButton.titleLabel.adjustsFontSizeToFitWidth = YES;
+        _statBatchButton.backgroundColor = [UIColor colorWithWhite:0.06 alpha:0.96];
+        _statBatchButton.tintColor = [UIColor colorWithRed:199/255.0 green:179/255.0 blue:119/255.0 alpha:1];
+        _statBatchButton.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+        _statBatchButton.layer.cornerRadius = 8;
+        _statBatchButton.layer.borderWidth = 1;
+        _statBatchButton.layer.borderColor = _statBatchButton.tintColor.CGColor;
+        [self addSubview:_statBatchButton];
+    }
+    _statBatchButton.hidden = NO;
+    _statBatchButton.enabled = points.stat_points > 0;
+    UIEdgeInsets insets = self.safeAreaInsets;
+    CGFloat width = MIN(188, self.bounds.size.width-insets.left-insets.right-24);
+    _statBatchButton.frame = CGRectMake(self.bounds.size.width-insets.right-width-12,
+                                       self.bounds.size.height-insets.bottom-58, width, 44);
+    int language = dm_lang_index();
+    if (_statBatchBalance == points.stat_points && _statBatchLanguage == language) return;
+    _statBatchBalance = points.stat_points; _statBatchLanguage = language;
+    [_statBatchButton setTitle:SWT("dmStatBulk") forState:UIControlStateNormal];
+    NSMutableArray<UIMenuElement *> *attributes = [NSMutableArray array];
+    const char *keys[] = {"dmStatStrength", "dmStatDexterity", "dmStatVitality", "dmStatEnergy"};
+    __weak DmMetalView *weakSelf = self;
+    for (int stat = 0; stat < 4; stat++) {
+        NSMutableArray<UIMenuElement *> *amounts = [NSMutableArray array];
+        int quantities[] = {10, 100, -1};
+        for (int i = 0; i < 3; i++) {
+            int n = quantities[i];
+            NSString *title = n == -1 ? [NSString stringWithFormat:SWT("dmStatBulkAll"), points.stat_points]
+                : n > points.stat_points ? [NSString stringWithFormat:SWT("dmStatBulkPartial"), n, points.stat_points]
+                : [NSString stringWithFormat:@"+%d", n];
+            UIAction *action = [UIAction actionWithTitle:title image:nil identifier:nil handler:^(UIAction *chosen) {
+                (void)chosen; DmMetalView *view = weakSelf;
+                dm_points_info current; dm_points_get(&current);
+                if (!view || view->_padMode || view->_feMode || !current.char_open || current.stat_points <= 0) return;
+                [view cancelControls]; view->_selId = 0; view->_addAt = 0;
+                dm_stat_add(stat, n);
+                LOG("前端：批量加点 属性 %d 数量 %d，剩余 %d", stat, n, current.stat_points);
+            }];
+            if (n == -1) action.attributes = UIMenuElementAttributesDestructive;
+            [amounts addObject:action];
+        }
+        [attributes addObject:[UIMenu menuWithTitle:SWT(keys[stat]) children:amounts]];
+    }
+    _statBatchButton.menu = [UIMenu menuWithTitle:[NSString stringWithFormat:SWT("dmStatBulkRemain"), points.stat_points] children:attributes];
+}
 - (void)tickTouchControls:(double)now {
+    [self statBatchSync];
     [self mapGoalSync];
     { int dm_padmode_busy(void); BOOL hide=_feMode || _padMode || dm_padmode_busy(); if(_overlay.hidden!=hide) _overlay.hidden=hide; }   // 手柄 → 触屏切换事务还没完成（界面还在重建）时触屏控件层先不露出来（dm_padmode.c） | While the controller → touch switch transaction is not yet complete (the UI is still rebuilding) the touch control layer is not revealed yet (dm_padmode.c)
     { void dm_rift_hud_draw(UIView *, CGRect, BOOL); dm_rift_hud_draw(_info, world_rect(self), _navigation || _info.hidden); }

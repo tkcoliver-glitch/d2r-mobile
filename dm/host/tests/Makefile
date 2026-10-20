@@ -45,6 +45,7 @@ run: \
 	$(B)/t_warp_diag \
 	$(B)/t_romfs_validate \
 	$(B)/t_rwlv \
+	$(B)/t_stat_batch \
 	$(B)/t_swkbd \
 	$(B)/t_target_rank \
 	$(B)/t_textbox \
@@ -91,6 +92,7 @@ run: \
 	$(B)/t_condvar_old
 	$(B)/t_target_rank 2>/dev/null
 	$(B)/t_hud_dead
+	$(B)/t_stat_batch
 	$(B)/t_namegen
 	$(B)/t_minimap_lift
 	$(B)/t_modetx
@@ -108,6 +110,8 @@ $(B)/t_mac_overlay: t_mac_overlay.m ../app_mac_overlay.h | $(B)
 	clang -O1 -Wall -Werror -fobjc-arc -framework Foundation -o $@ t_mac_overlay.m
 $(B)/t_hud_dead: t_hud_dead.c ../dm_hud.h | $(B)
 	clang -O1 -Wall -Werror -I.. -o $@ t_hud_dead.c
+$(B)/t_stat_batch: t_stat_batch.c ../dm_stat_batch.h | $(B)
+	clang -O1 -Wall -Werror -I.. -o $@ t_stat_batch.c
 $(B)/t_textbox: t_textbox.c ../dm_textbox_core.c ../dm_textbox_core.h | $(B)
 	clang -O1 -Wall -Werror -o $@ t_textbox.c ../dm_textbox_core.c
 $(B)/t_rwlv: t_rwlv.c ../dm_rwlv_core.c ../dm_rwlv_core.h | $(B)

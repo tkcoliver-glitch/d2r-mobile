@@ -29,7 +29,7 @@ typedef struct {
     char sel_name[64];
 } dm_points_info;
 void dm_points_get(dm_points_info *out);
-void dm_stat_add(int stat, int n);        // stat：0 力量 1 敏捷 2 体力 3 精力；n：1 / 5 / -1 全部（角色页开着时有效） | stat: 0 strength 1 dexterity 2 vitality 3 energy; n: 1 / 5 / -1 all (valid while the character page is open)
+void dm_stat_add(int stat, int n);        // stat：0 力量 1 敏捷 2 体力 3 精力；n：1 / 5 / 10 / 100 / -1 全部，不足按余额（角色页开着时有效） | stat: 0 strength 1 dexterity 2 vitality 3 energy; n: 1 / 5 / 10 / 100 / -1 all, clamped to remaining points (character page must be open)
 void dm_skill_add_selected(void);         // 给技能树页当前选中的技能加 1 点 | add 1 point to the skill currently selected on the skill tree page
 void dm_belt_put(uint32_t item_id);        // 把背包里的这件物品放进腰带（游戏自己的「移到腰带」路径；不是药水 / 腰带满时不动）。item_id 用 dm_cursor_item 的 id | put this inventory item into the belt (the game's own "move to belt" path; does nothing if it is not a potion / the belt is full). item_id uses the id from dm_cursor_item
 void dm_item_use(uint32_t item_id);         // 立即使用这件物品（原版「使用」同一个函数：手柄按住确认键 / 键鼠右键的终点；不等长按门槛）。喝药、读卷轴、用书、开方块。item_id 用 dm_cursor_item 的 id | use this item immediately (the same function as the original game's "use": the endpoint of controller hold-confirm / keyboard-and-mouse right click; does not wait for the long-press threshold). Drinks potions, reads scrolls, uses tomes, opens the cube. item_id uses the id from dm_cursor_item

@@ -18,6 +18,7 @@
 //            whether a point can be added = main+0xc368b0(skill id).
 #include "dm_prof.h"
 #include "dm_actions.h"
+#include "dm_stat_batch.h"
 #include "dm_charged_skill.h"
 #include "dm_cursor_item.h"
 #include "dm_elysium.h"
@@ -48,7 +49,7 @@ void dm_points_get(dm_points_info *o) { pthread_mutex_lock(&g_mu); *o = g_pts; p
 int dm_shop_open(void) { return atomic_load(&g_open); }
 void dm_shop_buy(void) { atomic_store(&g_buy, 1); }
 void dm_shop_sell_cursor(void) { atomic_store(&g_sell, 1); }
-void dm_stat_add(int stat, int n) { if (stat >= 0 && stat <= 3 && (n == 1 || n == 5 || n == -1)) atomic_store(&g_stat, stat << 8 | (n == 1 ? 2 : n == 5 ? 3 : 1)); }
+void dm_stat_add(int stat, int n) { int request = dm_stat_batch_request(stat, n); if (request >= 0) atomic_store(&g_stat, request); }
 void dm_skill_add_selected(void) { atomic_store(&g_skill, 1); }
 static _Atomic uint32_t g_belt; static _Atomic int g_test_hold, g_test_sell;
 void dm_belt_put(uint32_t item_id) { if (item_id) atomic_store(&g_belt, item_id); }
@@ -897,7 +898,12 @@ void dm_actions_pump(void) {
             it = *(uint64_t *)(d + 0xb0); }
         if (!done) LOG("测试：没有能卖的物品 / 商人页没开"); }
     int st = atomic_exchange(&g_stat, -1);
-    if (st >= 0 && pl) { a_send(b, root, H_STATS, H_USEPT, st >> 8, st & 0xff); LOG("加点：属性序号 %d 模式 %d（2 = 1 点、3 = 5 点、1 = 全部），发令前剩余属性点 %d", st >> 8, st & 0xff, p.stat_points); }
+    if (st >= 0 && pl && p.char_open) {
+        int requested = (st & 0xff) ? st & 0xff : -1, modes[24];
+        int count = dm_stat_batch_modes(requested, p.stat_points, modes);
+        for (int i = 0; i < count; i++) a_send(b, root, H_STATS, H_USEPT, st >> 8, modes[i]);
+        LOG("加点：属性序号 %d 请求 %d 点（-1 全部），发令前剩余 %d，原版消息 %d 条", st >> 8, requested, p.stat_points, count);
+    }
     if (atomic_exchange(&g_skill, 0)) { int go = p.sel_skill >= 0 && p.sel_can_add; if (go) a_send(b, root, H_TREE, H_USEPT, p.sel_skill, 0); LOG("加点：技能 %d（不能加的原因 %d：0 可加 1 没点数 2 等级不够 3 前置没学 4 其它 5 没打通过秘境、已到 20；剩余技能点 %d）%s", p.sel_skill, p.sel_block, p.skill_points, go ? "已发" : p.sel_skill >= 0 ? "不能加，没发" : "没有选中的技能，忽略");
         if (!go && p.sel_skill >= 0 && p.sel_block == 5) { static uint64_t last; uint64_t f = dm_guest_frame(); if (!last || f - last >= 120) { last = f; void dm_game_notice(uint8_t *, const char *); dm_game_notice(b, dm_str(b, "dmSkillCapLocked")); LOG("加点：提示「%s」", dm_str(b, "dmSkillCapLocked")); } } }
 }
