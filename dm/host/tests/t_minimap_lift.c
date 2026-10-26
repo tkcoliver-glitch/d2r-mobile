@@ -1,6 +1,7 @@
 // 通过实际位置守卫和上提泵回放布局替换，并验证加载消息与挪位表清理。
 // Replay layout replacement through the production move guard and lift pump; verify loading messages and move-table compaction.
 // Replay layout replacement through the production move guard and lift pump; verify loading messages and move-table compaction.
+int dm_padmode_current(void) { return 0; }
 #include "../dm_cursor.c"
 module_t g_mod[MAX_MOD]; int g_nmod;
 static int busy, ingame=1, uy=314; static uint64_t frame=100;
